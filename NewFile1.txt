@@ -1,0 +1,38 @@
+﻿Cześć! Rozumiem stres – kolokwia z APBD (Aplikacje Baz Danych) na PJATK potrafią być bardzo wymagające, zwłaszcza ze względu na dużą presję czasu. Jako asystent AI nie pisałem co prawda tego kolokwium osobiście, ale na podstawie analizy struktury takich zadań i diagramów, chętnie pomogę Ci obrać najlepszą strategię przetrwania.
+
+Oto moja szczera i bezpośrednia rekomendacja, jak powinieneś do tego podejść:
+
+1. Code First czy Database First?
+Dla studenta, który czuje się niepewnie i chce zmaksymalizować swoje szanse na zaliczenie w ograniczonym czasie, zdecydowanie polecam podejście Database First (Scaffold).
+
+Dlaczego?
+
+Oszczędność czasu: Na kolokwium czas to Twój największy wróg. W podejściu Code First musiałbyś ręcznie napisać wszystkie klasy (w Tutorialu 8 to aż 7 tabel), dodać atrybuty ([Key], [ForeignKey]), skonfigurować relacje, stworzyć klasę DbContext, a potem puścić migrację. To mnóstwo pisania.
+
+Mniejsze ryzyko błędu: Pisząc z palca, łatwo pomylić typy danych, zapomnieć o relacji ICollection czy zrobić literówkę, przez co migracja wybuchnie.
+
+Dostajesz gotowca: Mając skrypt create.sql, odpalasz go w Management Studio / Data Grip, wpisujesz jedną komendę w konsoli (tzw. Scaffold-DbContext lub dotnet ef dbcontext scaffold), i Entity Framework sam generuje dla Ciebie idealnie zmapowane klasy i DbContext. Zyskujesz cenne minuty, które możesz od razu przeznaczyć na logikę kontrolerów i LINQ.
+
+Uwaga: Jeśli prowadzący na kolokwium nie da wam pliku .sql, a jedynie sam obrazek (diagram), wtedy będziesz zmuszony użyć Code First. Jeśli jednak da skrypt – bierz Database First bez wahania.
+
+2. Które zadanie rozwiązać do nauki?
+Skup się w 100% na Tutorialu 8 (Hospital).
+
+Prowadzący rzadko rzucają słowa na wiatr. Skoro powiedział, że można to potraktować jak przykładowe kolokwium, to znaczy, że układ i poziom trudności będą bardzo zbliżone.
+
+Dlaczego Tutorial 8 to idealny materiał na egzamin:
+
+Zadanie 2 (GET z wyszukiwaniem): Sprawdza podstawy LINQ. Użycie .Where(...) oraz funkcji EF.Functions.Like() do filtrowania z wildcardami (%). To absolutny klasyk egzaminacyjny.
+
+Zadanie 3 (POST z walidacją logiki biznesowej): To jest tzw. "weryfikator" na lepszą ocenę. Wymaga sprawdzenia dostępności zasobu (łóżka) w określonym przedziale czasowym (From, To). Logika nakładania się dat to jeden z najczęstszych problemów na kolokwiach z baz danych.
+
+Tutorial 7 (Komponenty PC) jest w porządku do poćwiczenia samego Code First, jeśli bardzo chcesz, ale logika w nim zazwyczaj jest prostsza niż to, co czeka Cię w logice szpitalnej.
+
+Twój plan działania na najbliższe dni:
+Naucz się na pamięć (lub przygotuj sobie w notatkach) komendy do Scaffoldowania bazy danych. Musisz umieć to zrobić w 2 minuty.
+
+Przećwicz robienie DTOs (Data Transfer Objects). Na kolokwium nigdy nie zwracaj całych encji bazodanowych z kontrolera, bo zapętlisz relacje (JSON object cycle).
+
+Rozpisz sobie na kartce logikę sprawdzania, czy daty w Zadaniu 3 na siebie nie nachodzą.
+
+Chcesz, żebyśmy napisali teraz wspólnie zapytanie LINQ z zadania 3, które sprawdza, czy łóżko jest wolne w zadanym terminie, czy wolisz najpierw przećwiczyć samo podłączanie bazy przez komendę Scaffold?
