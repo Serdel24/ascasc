@@ -1,0 +1,1121 @@
+jak dodac localdb connection stringa do appsetting.json?
+
+Aby dodać connection string dla LocalDB do pliku appsettings.json, musisz utworzyć (lub zmodyfikować) sekcję "ConnectionStrings".
+
+Oto jak powinien wyglądać Twój plik appsettings.json:
+
+JSON
+{
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft.AspNetCore": "Warning"
+    }
+  },
+  "AllowedHosts": "*",
+  "ConnectionStrings": {
+    "DefaultConnection": "Server=(localdb)\\MSSQLLocalDB;Database=ApbdKolokwium;Trusted_Connection=True;TrustServerCertificate=True;"
+  }
+}
+🔍 Na co zwrócić szczególną uwagę:
+Podwójny ukośnik (\\): To najczęstszy błąd! W samym C# serwer nazywa się (localdb)\MSSQLLocalDB, ale w pliku JSON znak ukośnika \ jest znakiem ucieczki (escape character), więc musisz go zapisać podwójnie jako \\.
+
+Database=ApbdKolokwium: Tutaj podajesz nazwę swojej bazy danych. Z racji, że robisz zadanie z kolokwium, nazwałem ją ApbdKolokwium, ale możesz wpisać dowolną inną nazwę.
+
+Trusted_Connection=True;: Oznacza, że logujesz się do bazy za pomocą poświadczeń systemu Windows (nie musisz podawać loginu i hasła do SQL Servera).
+
+TrustServerCertificate=True;: W nowszych wersjach Entity Framework Core (od wersji 7.0 w górę) domyślnie włączone jest ścisłe sprawdzanie certyfikatów SSL. Dodanie tego parametru zapobiega błędom połączenia na lokalnym środowisku deweloperskim.
+
+Mając tak przygotowany plik, w Zadaniu 1 z Twojego kolokwium będziesz mógł użyć tego samego connection stringa do wygenerowania modeli komendą Scaffold-DbContext (lub dotnet ef dbcontext scaffold).
+
+co by zmienilo jakbym w default connection dal Data Source w miejsce Server?
+
+Z punktu widzenia działania aplikacji — nic by to nie zmieniło.
+
+W parametrach connection stringów dla SQL Servera (i LocalDB) terminy Server i Data Source są traktowane jako synonimy. Możesz ich używać zamiennie.
+
+Oba poniższe zapisy będą działać identycznie i połączą Cię z tą samą bazą:
+
+Zapis 1 (z Server):
+
+JSON
+"DefaultConnection": "Server=(localdb)\\MSSQLLocalDB;Database=ApbdKolokwium;Trusted_Connection=True;TrustServerCertificate=True;"
+Zapis 2 (z Data Source):
+
+JSON
+"DefaultConnection": "Data Source=(localdb)\\MSSQLLocalDB;Database=ApbdKolokwium;Trusted_Connection=True;TrustServerCertificate=True;"
+Często programiści stosują te nazwy naprzemiennie w zależności od przyzwyczajeń. Entity Framework Core oraz biblioteki do obsługi bazodanowej (jak Microsoft.Data.SqlClient) pod spodem mapują te wartości na to samo pole.
+
+Czy generujemy modele z bazy?
+
+najpierw powinienem zrobic db scaffold czy odpalic skrypt create sql
+
+Zdecydowanie najpierw musisz odpalić skrypt create.sql.
+
+Wynika to z samej nazwy podejścia: Database First (najpierw baza danych). Entity Framework Core musi mieć fizycznie istniejącą bazę danych ze strukturą tabel, kluczami i relacjami, aby móc na jej podstawie wygenerować kod w C#.  
+PDF
+
+Jeśli uruchomiłbyś komendę scaffold na pustej lub nieistniejącej bazie, narzędzie nie znalazłoby żadnych tabel do zmapowania i nie wygenerowałoby modeli (lub zwróciłoby błąd).
+
+Oto poprawna kolejność działania dla Twojego zadania:
+
+Krok 1: Utworzenie bazy danych
+Uruchom skrypt create.sql na swoim lokalnym serwerze (localdb)\MSSQLLocalDB. Możesz to zrobić na kilka sposobów:  
+PDF
+
+Przez SQL Server Object Explorer wbudowany w Visual Studio.
+
+Za pomocą SQL Server Management Studio (SSMS) lub Azure Data Studio.
+Upewnij się, że skrypt wykonał się poprawnie i tabele (np. Users, Courses, Assignments) pojawiły się w Twojej bazie ApbdKolokwium.
+
+Krok 2: Generowanie modeli (Scaffold)
+Gdy baza danych jest już w pełni gotowa, przejdź do Visual Studio i uruchom komendę generującą modele z bazy.
+
+Pamiętaj o wytycznej z Zadania 1, która mówi, że modele muszą trafić do folderu Entities. Przykładowa komenda w Package Manager Console (PMC) powinna wyglądać mniej więcej tak:  
+PDF
+
+PowerShell
+Scaffold-DbContext "Server=(localdb)\MSSQLLocalDB;Database=ApbdKolokwium;Trusted_Connection=True;TrustServerCertificate=True;" Microsoft.EntityFrameworkCore.SqlServer -OutputDir Entities
+(Zwróć uwagę na flagę -OutputDir Entities, która załatwia wymóg z polecenia).
+
+Zad2.
+
+Przygotuj końcówkę /api/assignments odpowiadającą na zapytania HTTP GET.
+
+Końcówka powinna zwracać wszystkie zadania wraz z lekcją, kursem i liczbą przesłanych
+
+odpowiedzi.
+
+Dodatkowo endpoint powinien wspierać parametr:
+
+courseId
+
+
+
+mam juz niezbedne DTOs - jak teraz zrobic ten krok?
+
+Z racji tego, że w punktacji na kolokwium wyraźnie zaznaczono kary za brak wydzielenia komunikacji z bazą do oddzielnej warstwy (do -10 pkt) oraz brak wstrzykiwania zależności (-5 pkt), nie możemy wrzucić logiki bezpośrednio do kontrolera. Musimy stworzyć serwis (lub repozytorium).
+
+Oto optymalny i zgodny z wymogami architektury podział na 4 krótkie kroki:
+
+Krok 1: Stworzenie interfejsu (Abstrakcja)
+Wydzielamy kontrakt dla naszego serwisu, żeby móc go później wstrzyknąć. Stwórz plik IAssignmentsService.cs (np. w folderze Services lub Repositories):
+
+C#
+using TwójProjekt.Models.DTOs; // Zmień na swój namespace
+
+namespace TwójProjekt.Services
+{
+    public interface IAssignmentsService
+    {
+        Task<IEnumerable<AssignmentDto>> GetAssignmentsAsync(int? courseId);
+    }
+}
+Krok 2: Implementacja Serwisu (Logika Bazy Danych)
+Tutaj wykonamy asynchroniczne zapytanie do bazy, uwzględniając filtrowanie i mapowanie na Twoje DTO. Użycie .Select() jest tu kluczowe – dzięki temu Entity Framework wyciągnie z bazy tylko te kolumny, których potrzebujesz, unikając problemu N+1 i obciążania pamięci.
+
+Stwórz plik AssignmentsService.cs:
+
+C#
+using Microsoft.EntityFrameworkCore;
+using TwójProjekt.Entities; // Zmień na namespace swoich modeli z bazy
+using TwójProjekt.Models.DTOs;
+
+namespace TwójProjekt.Services
+{
+    public class AssignmentsService : IAssignmentsService
+    {
+        private readonly ApbdKolokwiumContext _context;
+
+        public AssignmentsService(ApbdKolokwiumContext context)
+        {
+            _context = context;
+        }
+
+        public async Task<IEnumerable<AssignmentDto>> GetAssignmentsAsync(int? courseId)
+        {
+            // Zaczynamy od utworzenia bazowego zapytania (IQueryable)
+            var query = _context.Assignments.AsQueryable();
+
+            // Jeśli użytkownik podał courseId, dodajemy warunek filtrowania
+            if (courseId.HasValue)
+            {
+                // Musimy wejść przez relację Lekcji do Kursu
+                query = query.Where(a => a.Lesson.CourseId == courseId.Value);
+            }
+
+            // Mapujemy na DTO i wykonujemy zapytanie asynchronicznie
+            var assignments = await query.Select(a => new AssignmentDto
+            {
+                // DOSTOSUJ TE POLA DO NAZW W TWOIM DTO
+                Id = a.Id,
+                Title = a.Title,
+                DueDate = a.DueDate,
+                MaxScore = a.MaxScore,
+                LessonTitle = a.Lesson.Title, // Wyciągamy tytuł lekcji
+                CourseTitle = a.Lesson.Course.Title, // Wyciągamy tytuł kursu
+                SubmissionsCount = a.Submissions.Count() // Zliczamy odpowiedzi
+            }).ToListAsync();
+
+            return assignments;
+        }
+    }
+}
+Krok 3: Kontroler (Punkt wejścia API)
+Teraz tworzymy kontroler, który będzie odpowiadał tylko za przyjmowanie żądań, przekazywanie ich do serwisu i zwracanie poprawnego kodu HTTP.
+
+Stwórz AssignmentsController.cs w folderze Controllers:
+
+C#
+using Microsoft.AspNetCore.Mvc;
+using TwójProjekt.Services;
+
+namespace TwójProjekt.Controllers
+{
+    [ApiController]
+    [Route("api/[controller]")]
+    public class AssignmentsController : ControllerBase
+    {
+        private readonly IAssignmentsService _assignmentsService;
+
+        public AssignmentsController(IAssignmentsService assignmentsService)
+        {
+            _assignmentsService = assignmentsService;
+        }
+
+        [HttpGet]
+        public async Task<IActionResult> GetAssignments([FromQuery] int? courseId)
+        {
+            var result = await _assignmentsService.GetAssignmentsAsync(courseId);
+            
+            // Zwracamy kod 200 OK wraz z listą zadań
+            return Ok(result);
+        }
+    }
+}
+Krok 4: Rejestracja zależności (DI) w Program.cs
+Aby wstrzykiwanie zależności zadziałało (co chroni Cię przed utratą kolejnych punktów), musisz zarejestrować nowo utworzony interfejs i jego implementację w kontenerze DI.
+
+Otwórz plik Program.cs i dodaj tę linijkę przed builder.Build():
+
+C#
+// Rejestracja DbContextu (jeśli jeszcze tego nie masz)
+builder.Services.AddDbContext<ApbdKolokwiumContext>(options =>
+    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+
+// Rejestracja Twojego serwisu
+builder.Services.AddScoped<IAssignmentsService, AssignmentsService>();
+Dzięki temu kodowi zrealizowałeś wszystkie wymagania z Zadania 2: masz endpoint GET /api/assignments, wsparcie dla parametru courseId, poprawne kody odpowiedzi, asynchroniczną bazę i warstwową architekturę. Pamiętaj tylko, by dostosować nazwy zmiennych w .Select() do tego, co dokładnie masz w swoich DTOs!
+
+prowadzacy na cwiczeniach dawal do argumentow w takim intefejsie jeszcze cancellation token - co to jest i czy jest konieczne?
+
+Twój prowadzący uczy Was bardzo dobrych i nowoczesnych praktyk!
+
+Czym jest CancellationToken?
+CancellationToken to mechanizm w C#, który służy do "kulturalnego" przerywania długo trwających operacji asynchronicznych.
+
+Wyobraź sobie taką sytuację: użytkownik wchodzi na stronę, która musi pobrać z bazy ogromną listę danych (co zajmie np. 5 sekund). Po 1 sekundzie użytkownik traci cierpliwość i odświeża stronę albo zamyka przeglądarkę.
+
+Bez CancellationToken: Twój serwer i baza danych będą dalej "mielić" to zapytanie przez kolejne 4 sekundy, zużywając procesor i pamięć, mimo że nikt już nie czeka na wynik.
+
+Z CancellationToken: Serwer dostaje sygnał "użytkownik zrezygnował!". Przekazuje ten sygnał do bazy danych (np. przez Entity Framework), a baza natychmiast przerywa wykonywanie zapytania. Oszczędzasz zasoby.
+
+Czy jest konieczny na kolokwium?
+Żeby aplikacja po prostu działała i zwracała wyniki — nie jest konieczny.
+
+Jednak z punktu widzenia poprawności architektonicznej aplikacji komercyjnych jest to standard. Ponieważ w punktacji kolokwium (Zadanie 3, uwaga o architekturze) jest mowa o karach za nieporządek lub braki architektoniczne, dodanie go zajmie Ci 10 sekund, a pokaże prowadzącemu, że wiesz, co robisz (i uchroni Cię przed ewentualną utratą punktów, jeśli prowadzący jest na to uczulony).
+
+Jak to łatwo wdrożyć do naszego kodu?
+Wystarczy dodać go jako parametr w 3 miejscach. ASP.NET Core sam automatycznie wstrzyknie ten token do Twojego kontrolera.
+
+1. Interfejs:
+
+C#
+public interface IAssignmentsService
+{
+    // Ustawiamy "default", aby parametr był opcjonalny
+    Task<IEnumerable<AssignmentDto>> GetAssignmentsAsync(int? courseId, CancellationToken cancellationToken = default);
+}
+2. Serwis (przekazujemy token do metody z EF Core):
+
+C#
+public async Task<IEnumerable<AssignmentDto>> GetAssignmentsAsync(int? courseId, CancellationToken cancellationToken = default)
+{
+    var query = _context.Assignments.AsQueryable();
+
+    if (courseId.HasValue)
+    {
+        query = query.Where(a => a.Lesson.CourseId == courseId.Value);
+    }
+
+    var assignments = await query.Select(a => new AssignmentDto
+    {
+        Id = a.Id,
+        // ... reszta mapowania
+        SubmissionsCount = a.Submissions.Count()
+    })
+    .ToListAsync(cancellationToken); // <-- O TUTAJ PRZEKAZUJEMY TOKEN
+
+    return assignments;
+}
+3. Kontroler (odbieramy token z requestu HTTP):
+
+C#
+[HttpGet]
+public async Task<IActionResult> GetAssignments([FromQuery] int? courseId, CancellationToken cancellationToken)
+{
+    // ASP.NET Core sam "wyciągnie" stan requestu i poda nam token
+    var result = await _assignmentsService.GetAssignmentsAsync(courseId, cancellationToken);
+    return Ok(result);
+}
+Dzięki tym drobnym zmianom Twój kod jest teraz w 100% zoptymalizowany pod kątem niepotrzebnego obciążania serwera.
+
+Czy chcesz, żebyśmy przeszli teraz do Zadania 3 (endpoint POST z transakcją), czy wolisz jeszcze omówić formatowanie tego JSON-a, którego musi zwrócić ten endpoint?
+
+czy kolejnosc parametrow w definicji ma tutaj znaczenie? Moge dac int? course id po tokenie?
+
+Tak, kolejność ma tutaj bardzo duże znaczenie i wynika to z zasad samego języka C#.
+
+Krótka odpowiedź brzmi: Nie powinieneś dawać courseId po tokenie. CancellationToken powinien zawsze być na samym końcu.
+
+Oto dlaczego tak jest:
+
+1. Wymogi kompilatora C# (Parametry opcjonalne)
+W naszym kodzie zdefiniowaliśmy token w interfejsie jako parametr opcjonalny, przypisując mu wartość: CancellationToken cancellationToken = default.
+
+Zgodnie z zasadami języka C#, wszystkie parametry opcjonalne (z wartością domyślną) muszą znajdować się na samym końcu listy argumentów, po wszystkich parametrach wymaganych.
+
+Jeśli spróbujesz napisać to odwrotnie:
+
+C#
+// ❌ BŁĄD KOMPILACJI (CS1737)
+public async Task<IEnumerable<AssignmentDto>> GetAssignmentsAsync(CancellationToken cancellationToken = default, int? courseId) 
+Kompilator od razu podkreśli to na czerwono, rzucając błędem: "Optional parameters must appear after all required parameters".
+
+2. Konwencja programistyczna w ekosystemie .NET
+Nawet gdybyś obydwa parametry uczynił opcjonalnymi (np. dodając int? courseId = null), w świecie Microsoftu i .NET istnieje żelazna konwencja: CancellationToken to zawsze ostatni parametr w sygnaturze metody.
+
+Wszystkie wbudowane metody asynchroniczne w C# (jak użyte przez nas ToListAsync(cancellationToken)) stosują dokładnie tę samą regułę. Trzymanie się jej sprawia, że:
+
+Twój kod jest natychmiast zrozumiały dla innych programistów.
+
+Wbudowane mechanizmy ASP.NET Core bez problemu "domyślają się", gdzie wstrzyknąć token anulowania.
+
+Poprawny, bezpieczny i jedyny zalecany zapis to:
+
+C#
+// ✅ POPRAWNIE
+public async Task<IEnumerable<AssignmentDto>> GetAssignmentsAsync(int? courseId, CancellationToken cancellationToken = default)
+public class PatientService(MasterContext ctx) : IPatientService
+
+{
+
+    public async Task<IEnumerable<PatientResponse>> GetAllAsync(CancellationToken cancellationToken)
+
+    {
+
+        return await ctx.Patients.Select(patient => new PatientResponse(
+
+            patient.Pesel,
+
+            patient.FirstName,
+
+            patient.LastName,
+
+            patient.Age,
+
+            patient.Sex
+
+            )).ToListAsync(cancellationToken);
+
+    }
+
+    public async Task<IEnumerable<PatientDetailsResponse>> GetAllAsyncDetails(string? search, CancellationToken cancellationToken)
+
+    {
+
+        return await ctx.Patients
+
+            .Where(patient => search == null || patient.FirstName.Contains(search)  || patient.LastName.Contains(search))
+
+            .Select(patient => new PatientDetailsResponse(
+
+            patient.Pesel,
+
+            patient.FirstName,
+
+            patient.LastName,
+
+            patient.Age,
+
+            patient.Sex ? "Male" : "Female",
+
+            patient.Admissions.Select(a => 
+
+                new AdmissionResponse(a.Id, a.AdmissionDate, a.DischargeDate, 
+
+                    new WardResponse(a.Ward.Id,a.Ward.Name,a.Ward.Description)))
+
+                .ToList(),
+
+            patient.BedAssignments.Select(b=> 
+
+                new BedAssignmentResponse(b.Id,b.From,b.To, 
+
+                    new BedTypeResponse(b.Bed.BedType.Id,b.Bed.BedType.Name,b.Bed.BedType.Description),
+
+                    new RoomResponse(b.Bed.Room.Id,b.Bed.Room.HasTv,new WardResponse(b.Bed.Room.Ward.Id,b.Bed.Room.Ward.Name,b.Bed.Room.Ward.Description))))
+
+                .ToList()
+
+        )).ToListAsync(cancellationToken);
+
+    }
+
+
+
+    public async Task AddBedAssignmentAsync(string pesel, BedAssignmentRequest request, CancellationToken cancellationToken)
+
+    {
+
+        var BedAssignment = new BedAssignment
+
+        {
+
+            PatientPesel =  pesel,
+
+            BedId = ctx.BedTypes.Where(b=> b.Name == request.BedTypeName).Select(b => b.Id).FirstOrDefault(),
+
+            From = request.From,
+
+            To = request.To,
+
+        };
+
+        ctx.Add(BedAssignment);
+
+        await ctx.SaveChangesAsync(cancellationToken);
+
+    }
+
+}
+
+
+
+o co chodzi z tym, ze tutaj mam w deklaracji klasy (context)?
+
+To, co widzisz w nagłówku klasy public class PatientService(MasterContext ctx) : IPatientService, to funkcja wprowadzona w C# 12 o nazwie Główne konstruktory (Primary Constructors).
+
+Jest to po prostu krótszy i wygodniejszy sposób na wstrzykiwanie zależności (Dependency Injection). Pozwala to pozbyć się "boilerplate'u", czyli powtarzalnego kodu, który wcześniej musieliśmy pisać ręcznie.
+
+Zamiast deklarować prywatne pole i przypisywać je w osobnym konstruktorze, kompilator robi to za Ciebie w tle, a zmienna ctx jest od razu dostępna we wszystkich metodach wewnątrz tej klasy.
+
+Aby lepiej to zrozumieć, zobacz, jak ten sam kod musiałby wyglądać w starszych wersjach C# (C# 11 i niżej):
+
+👴 Stary sposób (C# 11 i starsze):
+Musiałeś jawnie utworzyć pole _ctx i przypisać je w konstruktorze:
+
+C#
+public class PatientService : IPatientService
+{
+    // 1. Deklaracja prywatnego pola
+    private readonly MasterContext _ctx;
+
+    // 2. Tradycyjny konstruktor
+    public PatientService(MasterContext ctx) 
+    {
+        _ctx = ctx;
+    }
+
+    public async Task<IEnumerable<PatientResponse>> GetAllAsync(CancellationToken cancellationToken)
+    {
+        // 3. Użycie przypisanego pola _ctx
+        return await _ctx.Patients.Select(...).ToListAsync(cancellationToken);
+    }
+}
+✨ Nowy sposób - Główne konstruktory (C# 12+):
+Teraz robisz to wszystko w jednej linijce, tuż przy nazwie klasy:
+
+C#
+// 1. Parametr ctx staje się od razu dostępny w całej klasie
+public class PatientService(MasterContext ctx) : IPatientService
+{
+    public async Task<IEnumerable<PatientResponse>> GetAllAsync(CancellationToken cancellationToken)
+    {
+        // 2. Używasz ctx bezpośrednio
+        return await ctx.Patients.Select(...).ToListAsync(cancellationToken);
+    }
+}
+🔍 O czym warto pamiętać:
+Mniej kodu: Jest to niezwykle przydatne przy tworzeniu serwisów i kontrolerów w ASP.NET Core, gdzie często wstrzykujemy po 3-4 różne zależności (np. DbContext, ILogger, IMapper).
+
+Zmienna bez _: W starym podejściu dobrą praktyką było nazywanie prywatnych pól z podłogą na początku (np. _context). W Primary Constructors używamy zwykłej nazwy zmiennej (tutaj ctx), ponieważ pod maską traktowane to jest jako parametr, który "przechwytują" metody w klasie.
+
+Na swoim kolokwium z APBD  możesz śmiało używać tego zapisu. Zdecydowanie przyspieszy to Twoją pracę przy tworzeniu serwisów!  
+PDF
+
+namespace WebApplication1.DTOs;
+
+
+
+public record AssignmentDto(
+
+int id,
+
+string title,
+
+DateTime DueDate,
+
+int maxScore,
+
+LessonDto lesson,
+
+CourseDto course,
+
+int submissionsCount
+
+);
+
+
+
+czy to jest poprawne w kontekscie tego zadania?
+
+Koncepcyjnie to DTO zawiera wszystko, o co prosi polecenie w Zadaniu 2, czyli samo zadanie, lekcję, kurs oraz liczbę przesłanych odpowiedzi.  
+PDF
+
+Jest to dobry punkt wyjścia, ale musisz zwrócić szczególną uwagę na dwa bardzo ważne aspekty, żeby nie stracić punktów:
+
+1. Zgodność z plikiem GET.json
+W treści zadania znajduje się kluczowe zdanie: "Wymagany format odpowiedzi znajdziesz w pliku GET.json".
+Twój obecny kod zakłada, że lekcja i kurs to zagnieżdżone obiekty (LessonDto, CourseDto). Często na kolokwiach oczekuje się jednak "płaskiej" struktury (np. zwrócenia po prostu string LessonTitle i string CourseTitle). Musisz koniecznie upewnić się, że to, co zwraca Twoje DTO, idealnie mapuje się na strukturę z tego pliku JSON.  
+PDF
+
+2. Konwencja nazewnictwa (ryzyko utraty 4 punktów!)
+W Twojej definicji rekordu mieszasz konwencje: masz małe litery w int id czy string title, ale wielkie w DateTime DueDate.
+W C# przyjętą konwencją jest używanie PascalCase (każde słowo wielką literą) dla właściwości publicznych, nawet wewnątrz rekordów. Serializator JSON wbudowany w ASP.NET Core i tak domyślnie zamieni te nazwy na camelCase (mała pierwsza litera) przy wysyłaniu odpowiedzi.
+
+W systemie oceniania jest wprost napisane, że za "Korzystanie z niepoprawnej konwencji nazewnictwa (...) do -4 pkt". Lepiej nie kusić losu!  
+PDF
+
+Zalecam taką kosmetyczną poprawkę:
+
+C#
+namespace WebApplication1.DTOs;
+
+public record AssignmentDto(
+    int Id,
+    string Title,
+    DateTime DueDate,
+    int MaxScore,
+    LessonDto Lesson,
+    CourseDto Course,
+    int SubmissionsCount
+);
+Jak dokładnie wygląda struktura JSON-a w pliku GET.json, który masz dołączony do plików kolokwium?
+
+[
+
+{
+
+"id": 1,
+
+"title": "C# Variables Exercise",
+
+"dueDate": "2026-06-01T00:00:00",
+
+"maxScore": 100,
+
+"lesson": {
+
+"id": 1,
+
+"title": "Variables and Data Types"
+
+},
+
+"course": {
+
+"id": 1,
+
+"title": "C# Fundamentals"
+
+},
+
+"submissionsCount": 12
+
+}
+
+]
+
+Świetnie, ten JSON wyjaśnia wszystko!
+
+Jak widać, plik wymaga zagnieżdżonej struktury obiektów dla lesson i course, a nie płaskiej listy. Oznacza to, że Twój pierwotny pomysł z użyciem LessonDto i CourseDto był jak najbardziej trafiony pod kątem struktury.
+
+Musimy tylko połączyć to z poprawną konwencją nazewnictwa w C# (PascalCase). Nie martw się o małe litery w JSON-ie (camelCase) – wbudowany w ASP.NET Core serializator System.Text.Json domyślnie i automatycznie zamieni wielkie litery z C# na małe podczas wysyłania odpowiedzi do klienta.
+
+Oto kompletny, idealny zestaw DTOs oraz zaktualizowane mapowanie w serwisie, które da Ci dokładnie taki JSON bez utraty punktów za konwencję:
+
+1. Twoje pliki DTO
+Możesz umieścić je w jednym pliku lub rozbić na osobne (polecam osobne, ale dla czytelności daję tu razem). Zauważ wielkie litery:
+
+C#
+namespace TwójProjekt.Models.DTOs;
+
+public record AssignmentDto(
+    int Id,
+    string Title,
+    DateTime DueDate,
+    int MaxScore,
+    LessonDto Lesson,
+    CourseDto Course,
+    int SubmissionsCount
+);
+
+public record LessonDto(
+    int Id, 
+    string Title
+);
+
+public record CourseDto(
+    int Id, 
+    string Title
+);
+2. Aktualizacja mapowania w Serwisie (AssignmentsService.cs)
+Skoro zmieniliśmy lekcję i kurs na zagnieżdżone obiekty, musimy je utworzyć (używając operatora new) wewnątrz naszej metody .Select(). Używając głównych konstruktorów i rekordów, wygląda to bardzo czysto:
+
+C#
+public async Task<IEnumerable<AssignmentDto>> GetAssignmentsAsync(int? courseId, CancellationToken cancellationToken = default)
+{
+    var query = _context.Assignments.AsQueryable();
+
+    if (courseId.HasValue)
+    {
+        query = query.Where(a => a.Lesson.CourseId == courseId.Value);
+    }
+
+    // Tworzymy obiekty zgodnie z konstruktorami rekordów
+    var assignments = await query.Select(a => new AssignmentDto(
+        a.Id,
+        a.Title,
+        a.DueDate,
+        a.MaxScore,
+        new LessonDto(a.Lesson.Id, a.Lesson.Title),
+        new CourseDto(a.Lesson.Course.Id, a.Lesson.Course.Title),
+        a.Submissions.Count()
+    )).ToListAsync(cancellationToken);
+
+    return assignments;
+}
+I to wszystko! Z tym kodem masz gwarancję, że struktura zwrócona przez API będzie w 100% zgodna z podanym przez Ciebie JSON-em, a kod zachowuje najwyższe standardy C#.
+
+Czy czujesz się gotowy, abyśmy przeszli do Zadania 3, czyli endpointu /api/enrollments/create-payment z transakcją bazodanową? Pamiętaj, że tam też mamy jakiegoś POST.json!
+
+jak zmodyfikowac program cs jezeli mam juz ksonfigurowany kontroller
+
+Skoro masz już gotowy kontroler i serwis, plik Program.cs musi to wszystko "spiąć" w jedną całość. W nowszych wersjach .NET (gdzie nie ma już pliku Startup.cs), konfiguracja jest bardzo zwięzła i opiera się na tzw. instrukcjach najwyższego poziomu (Top-level statements).
+
+Oto jak powinien wyglądać Twój Program.cs, aby aplikacja poprawnie wykryła kontrolery, połączyła się z bazą i obsłużyła wstrzykiwanie zależności (co chroni Cię przed utratą punktów!):
+
+C#
+using Microsoft.EntityFrameworkCore;
+using TwójProjekt.Entities; // Zmień na swój namespace
+using TwójProjekt.Services; // Zmień na swój namespace
+
+var builder = WebApplication.CreateBuilder(args);
+
+// ---------------------------------------------------
+// 1. REJESTRACJA KONTROLERÓW
+// ---------------------------------------------------
+// To jest absolutnie konieczne, aby aplikacja "widziała" Twój AssignmentsController
+builder.Services.AddControllers();
+
+// ---------------------------------------------------
+// 2. REJESTRACJA BAZY DANYCH (DbContext)
+// ---------------------------------------------------
+// Wskazujemy, że chcemy używać SQL Servera z connection stringiem z appsettings.json
+builder.Services.AddDbContext<ApbdKolokwiumContext>(options =>
+    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+
+// ---------------------------------------------------
+// 3. WSTRZYKIWANIE ZALEŻNOŚCI (DI) - Wymóg z kolokwium!
+// ---------------------------------------------------
+builder.Services.AddScoped<IAssignmentsService, AssignmentsService>();
+
+// (Opcjonalne, ale bardzo przydatne) Rejestracja Swaggera do testowania API w przeglądarce
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
+
+var app = builder.Build();
+
+// ---------------------------------------------------
+// KONFIGURACJA ŚRODOWISKA (Middleware)
+// ---------------------------------------------------
+if (app.Environment.IsDevelopment())
+{
+    app.UseSwagger();
+    app.UseSwaggerUI();
+}
+
+app.UseHttpsRedirection();
+app.UseAuthorization();
+
+// ---------------------------------------------------
+// 4. MAPOWANIE KONTROLERÓW
+// ---------------------------------------------------
+// Ta linijka mówi aplikacji, żeby skierowała zapytania HTTP (np. /api/assignments) do odpowiednich metod w kontrolerach
+app.MapControllers();
+
+app.Run();
+Najważniejsze elementy, na które musisz uważać:
+Kolejność ma znaczenie: Wszystko, co dodajesz do builder.Services (np. AddDbContext, AddScoped, AddControllers), musi znaleźć się przed wywołaniem builder.Build().
+
+Z kolei wszystkie metody używające app. (czyli middleware, jak app.MapControllers()) muszą znajdować się po builder.Build(), ale przed app.Run().
+
+Pamiętaj o dodaniu odpowiednich using na samej górze pliku, żeby kompilator widział Twój kontekst bazy danych oraz serwisy.
+
+Jeśli Twój plik wygląda podobnie do powyższego, to Zadanie 1 i Zadanie 2 masz już w pełni zrealizowane pod kątem architektonicznym.
+
+Czy chcesz, żebym pokazał Ci teraz, jak ugryźć Zadanie 3 z endpointem /api/enrollments/create-payment i obsłużyć w nim wymaganą transakcję bazodanową?
+
+public class AssignmentService(MasterContext ctx) : IAssignmentsService
+
+{
+
+public async Task<IEnumerable<AssignmentDto>> GetAssignmentsAsync(int? courseId, CancellationToken cancellationToken)
+
+{
+
+return await ctx.Assignments.Select(Ass => new AssignmentDto(Ass.Id, Ass.Title, Ass.DueDate, Ass.MaxScore,
+
+new LessonDto(Ass.Lessons.Id, Ass.Lessons.Title),
+
+new CourseDto(Ass.Lessons.Course.Id, Ass.Lessons.Course.Title), Ass.Submissions.Count))
+
+.ToListAsync(cancellationToken);
+
+}
+
+}
+
+
+
+w tej metodzie ejst bug - count zawsze zwraa 1 - jak poprawnie zrzucic count?
+
+Błąd, z którym się zmagasz, to klasyczna pułapka przy mapowaniu zapytań w Entity Framework Core.
+
+Problem leży w tym fragmencie: Ass.Submissions.Count. Używasz tutaj właściwości .Count przypisanej do kolekcji, co w niektórych wersjach EF Core może nie zostać poprawnie przetłumaczone na odpowiednie zapytanie SQL (np. SELECT COUNT(...)), a zamiast tego EF Core próbuje ocenić to po stronie klienta lub zwraca niepoprawny wynik (często wynikający ze specyfiki złączeń LEFT JOIN).
+
+Jak to naprawić?
+Musisz użyć metody rozszerzającej LINQ, czyli dopisać nawiasy: .Count(). To daje EF Core jednoznaczny sygnał, że ma wygenerować podzapytanie zliczające rekordy bezpośrednio w bazie danych.
+
+Dodatkowo, w kodzie, który wkleiłeś, zgubiłeś filtrowanie po courseId, o które prosiło polecenie z kolokwium!
+
+Oto w pełni poprawna i bezpieczna wersja tej metody:
+
+C#
+public async Task<IEnumerable<AssignmentDto>> GetAssignmentsAsync(int? courseId, CancellationToken cancellationToken)
+{
+    // 1. Zaczynamy od utworzenia bazowego IQueryable
+    var query = ctx.Assignments.AsQueryable();
+
+    // 2. Dodajemy filtrowanie (wymóg z Zadania 2!)
+    if (courseId.HasValue)
+    {
+        query = query.Where(a => a.Lessons.CourseId == courseId.Value);
+    }
+
+    // 3. Mapujemy wyniki, używając metody .Count() z nawiasami
+    return await query.Select(Ass => new AssignmentDto(
+            Ass.Id, 
+            Ass.Title, 
+            Ass.DueDate, 
+            Ass.MaxScore,
+            new LessonDto(Ass.Lessons.Id, Ass.Lessons.Title),
+            new CourseDto(Ass.Lessons.Course.Id, Ass.Lessons.Course.Title), 
+            Ass.Submissions.Count() // <-- TUTAJ DODAJEMY NAWIASY
+        ))
+        .ToListAsync(cancellationToken);
+}
+🔍 Dwie uwagi do Twojego kodu:
+Pamiętaj o using System.Linq;: Na samej górze pliku musisz mieć ten import, aby metoda .Count() była dostępna.
+
+Nazewnictwo właściwości (Ass.Lessons): W Entity Framework nazwy nawigacyjne w liczbie mnogiej (np. Lessons) zazwyczaj oznaczają kolekcję (relację jeden-do-wielu). Skoro zadanie należy do jednej lekcji, wygenerowana nazwa w Twoim modelu to najprawdopodobniej Ass.Lesson (liczba pojedyncza). Jeśli Twój kod się nie kompiluje, usuń "s" na końcu słowa Lessons. Jeśli masz tak wygenerowane w klasie i działa – zostaw.
+
+jezli nie chce tworzyc zmiennej query to w ktorym miejscu daj where po selecie?
+
+Rozumiem, że chcesz napisać ten kod jak najbardziej zwięźle, w jednym tzw. "łańcuchu" (fluent API), bez tworzenia dodatkowej zmiennej.
+
+Krótka odpowiedź brzmi: Zdecydowanie nie dawaj Where po Select. Musisz dać je PRZED Select.
+
+Oto dlaczego to takie ważne i jak to poprawnie zapisać.
+
+Dlaczego Where musi być przed Select?
+Zasada działania Entity Framework Core i baz danych jest prosta: najpierw filtrujemy, potem wyciągamy dane.
+
+Jeśli dasz Where przed Select: EF Core wygeneruje optymalne zapytanie SQL, które najpierw odrzuci niepotrzebne rekordy po stronie bazy danych, a potem pobierze tylko te kolumny, o które prosisz w Select.
+
+Jeśli dasz Where po Select: W najgorszym scenariuszu (zależnie od wersji EF) program pobierze z bazy wszystkie zadania do pamięci RAM Twojego serwera, stworzy z nich obiekty, i dopiero na nich wykona filtrowanie. To tzw. wyciek pamięci (memory leak) i "zabójca" wydajności.
+
+Jak to zapisać bez zmiennej query?
+Skoro parametr courseId jest opcjonalny (int?), musisz obsłużyć sytuację, w której ktoś przesyła null. Wystarczy dodać ten warunek bezpośrednio do Where za pomocą operatora || (LUB).
+
+Baza danych zinterpretuje to idealnie. Oto jak wygląda cała metoda w jednym ciągu:
+
+C#
+public async Task<IEnumerable<AssignmentDto>> GetAssignmentsAsync(int? courseId, CancellationToken cancellationToken)
+{
+    return await ctx.Assignments
+        // 1. NAJPIERW FILTRUJEMY
+        // Jeśli courseId jest null, warunek po lewej zwraca true i EF zignoruje resztę (zwróci wszystko).
+        // Jeśli ma wartość, sprawdzi identyfikator kursu.
+        .Where(Ass => courseId == null || Ass.Lessons.CourseId == courseId)
+        
+        // 2. POTEM MAPUJEMY
+        .Select(Ass => new AssignmentDto(
+            Ass.Id, 
+            Ass.Title, 
+            Ass.DueDate, 
+            Ass.MaxScore,
+            new LessonDto(Ass.Lessons.Id, Ass.Lessons.Title),
+            new CourseDto(Ass.Lessons.Course.Id, Ass.Lessons.Course.Title), 
+            Ass.Submissions.Count()
+        ))
+        
+        // 3. NA KONIEC WYKONUJEMY ZAPYTANIE
+        .ToListAsync(cancellationToken);
+}
+Dzięki takiemu zapisowi pozbyłeś się zmiennej query, kod jest bardzo czytelny, "czysty" i co najważniejsze — zachowuje 100% wydajności przy komunikacji z bazą SQL.
+
+po co dales ten warunek na == null?
+
+To świetne pytanie, bo to jeden z najbardziej użytecznych "tricków" przy pisaniu zapytań w Entity Framework.
+
+Warunek courseId == null dodałem po to, aby prawidłowo obsłużyć sytuację, w której użytkownik nie podał żadnego parametru.
+
+Pamiętaj, że w naszym interfejsie i kontrolerze zdefiniowaliśmy ten parametr jako int? courseId (z pytajnikiem). Oznacza to, że jest on opcjonalny. Aplikację (API) można wywołać na dwa sposoby:
+
+GET /api/assignments?courseId=5 (wtedy zmienna courseId ma wartość 5).
+
+GET /api/assignments (wtedy zmienna courseId jest pusta, czyli ma wartość null).
+
+Oto jak dokładnie zadziała nasz warunek Where(Ass => courseId == null || Ass.Lessons.CourseId == courseId) w zależności od sytuacji, bazując na tzw. "leniwym wartościowaniu" (short-circuiting):
+
+Scenariusz 1: Użytkownik nie podał ID (chce zobaczyć wszystkie zadania)
+Gdy courseId to null, silnik bazy danych analizuje warunek:
+
+Czy courseId == null? TAK (True).
+
+Ponieważ użyliśmy operatora || (LUB), jeśli pierwsza część jest prawdziwa, druga część nie ma już znaczenia i nie jest w ogóle sprawdzana. Całe wyrażenie natychmiast staje się prawdziwe dla sprawdzanego rekordu.
+
+Efekt: Każdy rekord w bazie przechodzi przez ten filtr, więc API zwraca absolutnie wszystkie zadania.
+
+Scenariusz 2: Użytkownik podał courseId = 5 (chce zadania tylko z tego kursu)
+Gdy courseId wynosi 5, silnik bazy danych analizuje warunek:
+
+Czy courseId == null? NIE (False).
+
+Skoro pierwsza część jest fałszywa, program musi sprawdzić drugą część warunku, aby podjąć decyzję.
+
+Sprawdza więc: czy Ass.Lessons.CourseId == 5?
+
+Efekt: Tylko zadania przypisane do kursu nr 5 przejdą przez ten filtr.
+
+Co by się stało bez tego warunku?
+Gdybyś napisał po prostu .Where(Ass => Ass.Lessons.CourseId == courseId), a użytkownik nie podałby ID (czyli wysłał null), baza danych zinterpretowałaby to jako polecenie: "Znajdź mi wszystkie zadania, w których CourseId jest puste (IS NULL)".
+
+Zamiast otrzymać listę wszystkich zadań w systemie, użytkownik otrzymałby pustą listę, ponieważ każde zadanie ma przypisany jakiś kurs. Dodanie courseId == null || pozwala nam obsłużyć opcjonalne filtrowanie w jednej, eleganckiej linijce!
+
+ten count dalej nie dziala
+
+
+
+[
+
+{
+
+"id": 1,
+
+"title": "C# Variables Exercise",
+
+"dueDate": "2026-06-01T00:00:00",
+
+"maxScore": 100,
+
+"lesson": {
+
+"id": 1,
+
+"title": "Variables and Data Types"
+
+},
+
+"course": {
+
+"id": 1,
+
+"title": "C# Fundamentals"
+
+},
+
+"submissionsCount": 1
+
+},
+
+{
+
+"id": 2,
+
+"title": "SQL Tables Assignment",
+
+"dueDate": "2026-06-03T00:00:00",
+
+"maxScore": 100,
+
+"lesson": {
+
+"id": 2,
+
+"title": "Creating Tables"
+
+},
+
+"course": {
+
+"id": 2,
+
+"title": "SQL Server Basics"
+
+},
+
+"submissionsCount": 1
+
+},
+
+{
+
+"id": 3,
+
+"title": "UI Mockup Design",
+
+"dueDate": "2026-06-05T00:00:00",
+
+"maxScore": 100,
+
+"lesson": {
+
+"id": 3,
+
+"title": "Color Theory"
+
+},
+
+"course": {
+
+"id": 3,
+
+"title": "UI Design Essentials"
+
+},
+
+"submissionsCount": 1
+
+},
+
+{
+
+"id": 4,
+
+"title": "SEO Strategy Task",
+
+"dueDate": "2026-06-07T00:00:00",
+
+"maxScore": 100,
+
+"lesson": {
+
+"id": 4,
+
+"title": "SEO Fundamentals"
+
+},
+
+"course": {
+
+"id": 4,
+
+"title": "Digital Marketing 101"
+
+},
+
+"submissionsCount": 1
+
+},
+
+{
+
+"id": 5,
+
+"title": "Agile Sprint Planning",
+
+"dueDate": "2026-06-10T00:00:00",
+
+"maxScore": 100,
+
+"lesson": {
+
+"id": 5,
+
+"title": "Agile Methodology"
+
+},
+
+"course": {
+
+"id": 5,
+
+"title": "Project Management Basics"
+
+},
+
+"submissionsCount": 1
+
+}
+
+]
+
+To bardzo ciekawe! Jeśli zmieniłeś kod na .Count() (z nawiasami), a zapytanie wciąż uparcie zwraca wartość 1 dla każdego zadania, to problem z 99% prawdopodobieństwem wcale nie leży w Twoim kodzie, ale w danych.
+
+Z doświadczenia z kolokwiami powiem Ci, że to absolutny klasyk. Oto dwie rzeczy, które musisz teraz sprawdzić:
+
+1. Przez przypadek sprawdzasz poprawność kodu na podstawie obrazka (Wzoru)
+W poleceniu do Zadania 2 napisano: "Wymagany format odpowiedzi znajdziesz w pliku GET.json".
+
+Zwróć uwagę na słowo format. Plik GET.json to tylko wzór tego, jak ma wyglądać struktura obiektów (nazwy pól, zagnieżdżenia). To, że w pliku przykładowym widnieje "submissionsCount": 12, wcale nie oznacza, że Twój kod ma zwrócić 12. Twój kod ma policzyć to, co faktycznie jest w bazie danych.
+
+Najprawdopodobniej skrypt create.sql (który uruchomiłeś na samym początku), dodał do bazy testowe dane, w których każde zadanie ma dokładnie jedną przesłaną odpowiedź.
+
+Jak to sprawdzić w 10 sekund?
+
+Otwórz SQL Server Object Explorer w Visual Studio.
+
+Rozwiń swoją bazę ApbdKolokwium -> Tables.
+
+Kliknij prawym przyciskiem myszy na tabelę Submissions i wybierz View Data (Wyświetl dane).
+
+Sprawdź kolumnę AssignmentId. Założę się, że dla ID zadania = 1, w tabeli Submissions znajduje się tylko jeden jedyny wiersz z takim ID. Skoro jest jeden, Twój kod działa idealnie i zwraca poprawną jedynkę!
+
+2. (Mniej prawdopodobne) Błędnie wygenerowany model
+Jeśli jednak wejdziesz do bazy i okaże się, że zadanie o ID 1 ma tam np. 5 zgłoszeń, a kod dalej uparcie zwraca 1, to znaczy, że mechanizm Scaffold źle wygenerował relacje.
+
+Otwórz plik Entities/Assignment.cs (lub jakkolwiek nazywa się wygenerowany model zadania). Upewnij się, że masz tam właściwość zdefiniowaną jako kolekcja (lista), a nie pojedynczy obiekt. Powinno to wyglądać mniej więcej tak:
+
+C#
+public virtual ICollection<Submission> Submissions { get; set; } = new List<Submission>();
+Podsumowując: Twój kod EF Core jest napisany wzorowo. Zanim zaczniesz cokolwiek w nim zmieniać i psuć, sprawdź fizycznie dane w tabeli Submissions. Jeśli jest tam po 1 rozwiązaniu na zadanie, to nic nie ruszaj, masz maksa punktów za ten endpoint i możemy śmiało lecieć z Zadaniem 3!
+
+Daj znać, czy w bazie faktycznie są same jedynki!
+
+tam byl punkt zeby uzywac transakcji gdzie to koniecznie - gdzie to jes tkonieczne?
+
+To znakomite pytanie, bo dotyka sedna tego, jak działają bazy danych. W Zadaniu 3 z Twojego kolokwium użycie transakcji jest absolutnie konieczne.  
+PDF
+
+Oto dlaczego tak jest i jak to poprawnie zaimplementować, żeby zdobyć maksymalną liczbę punktów.
+
+Dlaczego transakcja jest tutaj konieczna?
+Zadanie 3 wymaga od Ciebie zrobienia dwóch rzeczy na podstawie jednego żądania POST:
+
+Zapisania użytkownika na kurs (czyli dodania rekordu (INSERT) do tabeli Enrollments).
+
+Dodania informacji o płatności (czyli dodania rekordu (INSERT) do tabeli Payments).  
+PDF
+
+Wyobraź sobie sytuację bez transakcji: Twój program pomyślnie dodaje użytkownika do tabeli Enrollments, ale ułamek sekundy później, przy próbie dodania Payments, serwer bazy danych na chwilę traci połączenie (lub występuje błąd walidacji).
+
+Skutek: Baza danych jest w stanie niespójnym. Masz użytkownika zapisanego na kurs, ale nie masz śladu jego płatności (dostał kurs za darmo!).
+
+Transakcja gwarantuje zasadę "Wszystko albo nic" (Atomicity). Albo obie operacje zakończą się pełnym sukcesem, albo — w przypadku jakiegokolwiek błędu — baza danych automatycznie wycofa wszystkie zmiany (tzw. Rollback) i wróci do stanu początkowego, jakby nic się nie wydarzyło.
+
+Jak napisać to w Entity Framework Core?
+Choć wywołanie await _context.SaveChangesAsync() tworzy w tle niejawną transakcję, prowadzący na kolokwiach często wymagają jawnego pokazania w kodzie, że rozumiesz ten mechanizm (wprost nakazuje to punkt z wytycznych ).  
+PDF
+
+Najlepiej użyć bloku try...catch wraz z obiektem transakcji. Oto szkielet tego, jak powinna wyglądać metoda w Twoim serwisie dla Zadania 3:
+
+C#
+public async Task ZapiszIPoplacAsync(TwójDto request, CancellationToken cancellationToken)
+{
+    // 1. Rozpoczynamy jawną transakcję
+    using var transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
+
+    try
+    {
+        // 2. KROK 1: Tworzymy i dodajemy Enrollment
+        var enrollment = new Enrollment
+        {
+            UserId = request.UserId,
+            CourseId = request.CourseId,
+            EnrollmentDate = DateTime.Now,
+            ProgressPercent = 0
+        };
+        _context.Enrollments.Add(enrollment);
+        
+        // Zapisujemy, żeby baza wygenerowała ID dla Enrollment (jeśli go potrzebujesz)
+        await _context.SaveChangesAsync(cancellationToken);
+
+        // 3. KROK 2: Tworzymy i dodajemy Payment
+        var payment = new Payment
+        {
+            UserId = request.UserId,
+            CourseId = request.CourseId,
+            Amount = request.Amount,
+            PaymentDate = DateTime.Now,
+            PaymentMethod = request.PaymentMethod
+            // Zwróć uwagę na strukturę tabeli Payments ze schematu
+        };
+        _context.Payments.Add(payment);
+
+        // Zapisujemy płatność
+        await _context.SaveChangesAsync(cancellationToken);
+
+        // 4. POTWIERDZENIE (COMMIT)
+        // Jeśli doszliśmy tutaj i nie było błędu, ostatecznie i trwale zapisujemy zmiany w bazie
+        await transaction.CommitAsync(cancellationToken);
+    }
+    catch (Exception)
+    {
+        // 5. WYCOFANIE ZMIAN (ROLLBACK)
+        // Jeśli cokolwiek "wybuchnie" po drodze (np. wyjątek bazy danych), wycofujemy wszystko.
+        await transaction.RollbackAsync(cancellationToken);
+        
+        // Rzucamy wyjątek dalej, żeby kontroler mógł zwrócić np. 500 Internal Server Error lub 400 Bad Request
+        throw; 
+    }
+}
+Podsumowanie dla kolokwium
+Jeśli Twoja końcówka modyfikuje (tworzy, aktualizuje, usuwa) dane w więcej niż jednej tabeli na raz i istnieje ryzyko, że jedna z tych operacji może się nie udać powodując błędy biznesowe, zawsze musisz użyć transakcji. W Zadaniu 3 jest to główny punkt do zaliczenia.
+
+jaki typ powinna miec zmienna amout w DTO mowiac o ilosci pieniedzy?
+
+Zdecydowanie powinien to być typ decimal.
+
+Zresztą, jeśli spojrzysz na diagram bazy danych z treści Twojego kolokwium, zauważysz, że w tabeli Payments kolumna Amount została zdefiniowana właśnie jako decimal(7,2). Musisz się do tego dostosować, aby Entity Framework poprawnie zmapował dane.  
+PDF
++ 2
+
+Oto dlaczego w świecie C# i .NET to jedyny słuszny wybór dla pieniędzy:
+
+Dlaczego decimal, a nie double lub float?
+Typy takie jak double i float są typami zmiennoprzecinkowymi. Przechowują one liczby w postaci ułamków binarnych, co sprawia, że są bardzo szybkie, ale... niedokładne. Prowadzi to do słynnych błędów zaokrągleń. Na przykład, operacja dodawania 0.1 + 0.2 przy użyciu typu double w wielu językach programowania nie daje równo 0.3, tylko coś w stylu 0.30000000000000004. W przypadku operacji finansowych, gdzie każdy grosz ma znaczenie, to absolutnie niedopuszczalne.
+
+Typ decimal to typ stałoprzecinkowy. Został zaprojektowany w C# specjalnie do obliczeń finansowych i księgowych. Gwarantuje on 100% precyzji w systemie dziesiętnym, dzięki czemu nie ma mowy o "gubieniu" groszy przy transakcjach.
+
+W Twoim DTO do Zadania 3 powinno to wyglądać mniej więcej tak (z zachowaniem konwencji PascalCase):
+
+C#
+public record ZapiszNaKursRequestDto(
+    int UserId,
+    int CourseId,
+    decimal Amount, // <-- Pieniądze to zawsze decimal
+    string PaymentMethod
+);
